@@ -2,12 +2,10 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"grandfather/internal/models"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -111,25 +109,71 @@ func AddUserToCircle(ctx context.Context, circleId bson.ObjectID, userId int64) 
 	return &updatedCircle, nil
 }
 
-func RemoveUserFromCircle(ctx context.Context, coll *mongo.Collection, circleId string, userId int64) (*models.Circle, error) {
-	// Parse ObjectID
-	oid, err := bson.ObjectIDFromHex(circleId)
-	if err != nil {
-		return nil, errors.New("invalid circleId")
+func RemoveUserFromCircle(ctx context.Context, circleId bson.ObjectID, userId int64) (*models.Circle, error) {
+
+	coll, collErr := GetCollection(circleCollectionName)
+	if collErr != nil {
+		return nil, collErr
 	}
 
 	// Build filter and update
-	filter := bson.M{"_id": oid}
+	filter := bson.M{"_id": circleId}
 	update := bson.M{"$pull": bson.M{"members": userId}}
 
 	// Return the updated document
 	opts := options.FindOneAndUpdate().SetReturnDocument(options.After)
 
 	var updatedCircle models.Circle
-	err = coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updatedCircle)
+	err := coll.FindOneAndUpdate(ctx, filter, update, opts).Decode(&updatedCircle)
 	if err != nil {
 		return nil, err
 	}
 
 	return &updatedCircle, nil
+}
+
+func SetCircleCurrentSession(ctx context.Context, circleId bson.ObjectID, sessionId bson.ObjectID) error {
+	coll, collErr := GetCollection(circleCollectionName)
+	if collErr != nil {
+		return collErr
+	}
+
+	update := bson.M{
+		"$set": bson.M{
+			"currentSession": sessionId,
+		},
+	}
+
+	_, err := coll.UpdateByID(ctx, circleId, update)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func UnsetCircleCurrentSession(ctx context.Context, circleId, sessionId bson.ObjectID) (bool, error) {
+	coll, collErr := GetCollection(circleCollectionName)
+	if collErr != nil {
+		return false, collErr
+	}
+
+	// Only unset if the currentSession matches the given sessionId
+	filter := bson.M{
+		"_id":            circleId,
+		"currentSession": sessionId,
+	}
+	update := bson.M{
+		"$unset": bson.M{
+			"currentSession": "",
+		},
+	}
+
+	result, err := coll.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, err
+	}
+
+	// MatchedCount == 1 means we successfully unset
+	return result.MatchedCount == 1, nil
 }

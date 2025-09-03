@@ -2,6 +2,11 @@ package ui
 
 var Menus = map[string]Menu{}
 
+const (
+	MenuNameMain    = "main"
+	MenuNameCircles = "circles"
+)
+
 func RegisterMenu(name string, menu Menu) {
 	Menus[name] = menu
 }
@@ -12,7 +17,7 @@ func GetMenu(name string) (Menu, bool) {
 }
 
 func RegisterMenus() {
-	RegisterMenu("main", Menu{
+	RegisterMenu(MenuNameMain, Menu{
 		Title: "Welcome! Choose an option:",
 		Buttons: [][]MenuButton{
 			{
@@ -25,10 +30,11 @@ func RegisterMenus() {
 		},
 	})
 
-	RegisterMenu("circles", Menu{
+	RegisterMenu(MenuNameCircles, Menu{
 		Title: "Your Circles:",
 		Buttons: [][]MenuButton{
 			{{Text: "Back", Command: "main"}},
 		},
 	})
+
 }

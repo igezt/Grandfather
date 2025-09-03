@@ -2,12 +2,17 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	handlers "grandfather/internal/bot"
+	"grandfather/internal/commands.go"
+	"grandfather/internal/db"
+	appModels "grandfather/internal/models"
 	"grandfather/internal/ui"
+	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 
 	"github.com/go-telegram/bot"
 	"github.com/go-telegram/bot/models"
@@ -29,15 +34,12 @@ func main() {
 	// --- Register command handlers ---
 	b.RegisterHandler(bot.HandlerTypeMessageText, "start", bot.MatchTypeCommandStartOnly, handlers.StartCommandHandler)
 
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "startNewCircle", bot.MatchTypeCommand, handlers.StartNewCircleCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "joinCircle", bot.MatchTypeExact, handlers.JoinCircleCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "startNewSession", bot.MatchTypeExact, handlers.StartNewSessionCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "revealMortal", bot.MatchTypeExact, handlers.RevealMortalCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "revealAngel", bot.MatchTypeExact, handlers.RevealAngelCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "sendMessage", bot.MatchTypeExact, handlers.SendMessageCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "endSession", bot.MatchTypeExact, handlers.EndSessionCommandHandler)
-	// b.RegisterHandler(bot.HandlerTypeMessageText, "removeUser", bot.MatchTypeExact, handlers.RemoveUserCommandHandler)
 	b.RegisterHandler(bot.HandlerTypeCallbackQueryData, "", bot.MatchTypePrefix, CallbackHandler)
+
+	commands.Router[commands.MainMenuCommand] = handlers.MainMenuCommandHandler
+	commands.Router[commands.StartNewCircleCommand] = handlers.StartNewCircleCommandHandler
+	commands.Router[commands.JoinCircleCommand] = handlers.JoinCircleCommandHandler
+	commands.Router[commands.ListCirclesCommand] = handlers.ListCirclesCommandHandler
 
 	ui.RegisterMenus()
 
@@ -53,38 +55,87 @@ func CallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	cmd := update.CallbackQuery.Data
 
 	// Marshal to JSON
-	data, err := json.MarshalIndent(update.CallbackQuery, "", "  ")
-	if err != nil {
-		fmt.Println("Error marshalling:", err)
+	// data, err := json.MarshalIndent(update.CallbackQuery, "", "  ")
+	// if err != nil {
+	// 	fmt.Println("Error marshalling:", err)
+	// 	return
+	// }
+	// fmt.Println(string(data))
+
+	if !strings.Contains(cmd, "@") {
+		fmt.Printf("Normal command received: %s\n", cmd)
+		// Check if we have a registered handler
+		if handler, ok := commands.Router[commands.Command(cmd)]; ok {
+			handler(ctx, b, update)
+			return
+		}
+
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "Unknown action",
+			ShowAlert:       false,
+		})
 		return
 	}
-	fmt.Println(string(data))
+	fmt.Printf("Dynamic command received: %s\n", cmd)
 
-	if update.CallbackQuery.Message.Message != nil {
-		msg := update.CallbackQuery.Message.Message // *models.Message
+	parts := strings.SplitN(cmd, "@", 2)
+	cmdPrefix, extraData := parts[0], parts[1]
 
-		if menu, ok := ui.GetMenu(cmd); ok {
-			b.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:      msg.Chat.ID,
-				MessageID:   msg.ID,
-				Text:        menu.Title,
-				ReplyMarkup: menu.ToInlineKeyboard(),
+	switch commands.Command(cmdPrefix) {
+	case commands.GetCircleCommand:
+		handlers.GetCircleDetailsHandler(ctx, b, update, extraData)
+	case commands.RemoveUserCommand:
+		handlers.RemoveUserCommandHandler(ctx, b, update, extraData)
+	case commands.RemoveSpecificUserCommand:
+		data := strings.SplitN(extraData, "@", 2)
+		if len(data) != 2 {
+			// Invalid payload, bail out gracefully
+			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "❌ Invalid command format.",
 			})
 			return
 		}
+
+		circleName, userIdStr := data[0], data[1]
+
+		// Parse the user ID as int64
+		userIdToRemove, err := strconv.ParseInt(userIdStr, 10, 64)
+		if err != nil {
+			_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: update.Message.Chat.ID,
+				Text:   "❌ Invalid user ID.",
+			})
+			return
+		}
+		handlers.RemoveSpecificUserCommandHandler(ctx, b, update, circleName, userIdToRemove)
+	case commands.GetMemberListCommand:
+		handlers.GetMemberListCommandHandler(ctx, b, update, extraData)
+	case commands.StartNewSessionCommand:
+		handlers.StartNewSessionCommandHandler(ctx, b, update, extraData)
+	case commands.EndSessionCommand:
+		handlers.EndSessionCommandHandler(ctx, b, update, extraData)
+	case commands.RevealMortalCommand:
+		handlers.RevealMortalCommandHandler(ctx, b, update, extraData)
+	case commands.RevealAngelCommand:
+		handlers.RevealAngelCommandHandler(ctx, b, update, extraData)
+	default:
+		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: update.CallbackQuery.ID,
+			Text:            "Unknown action",
+			ShowAlert:       false,
+		})
 	}
 
-	// Otherwise treat as normal command
-	switch cmd {
-	case "startNewCircle":
-		// start circle flow
-		handlers.StartNewCircleCommandHandler(ctx, b, update)
-	case "joinCircle":
-		// start session flow
-		handlers.JoinCircleCommandHandler(ctx, b, update)
-	case "listCircles":
-		handlers.ListCirclesCommandHandler(ctx, b, update)
+	_, err := b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: update.CallbackQuery.ID,
+	})
+
+	if err != nil {
+		log.Println("answer callback error:", err)
 	}
+
 }
 
 func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
@@ -93,12 +144,23 @@ func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	userID := update.Message.From.ID
-	state := handlers.UserStates[userID]
+	user, getUserErr := db.GetUser(ctx, userID)
+
+	if getUserErr != nil {
+		fmt.Printf("failed to get user %d: %v\n", userID, getUserErr)
+		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: update.Message.Chat.ID,
+			Text:   "Have you been registered? If you haven't, run the /start command to begin!",
+		})
+		return
+	}
+
+	state := user.State
 
 	switch state {
-	case handlers.StateWaitingCircleName:
+	case appModels.StateWaitingCircleName:
 		handlers.StartNewCircleWithNameCommandHandler(ctx, b, update)
-	case handlers.StateWaitingJoinCircleName:
+	case appModels.StateWaitingJoinCircleName:
 		handlers.JoinCircleWithNameCommandHandler(ctx, b, update)
 	default:
 
@@ -113,7 +175,7 @@ func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 
 		_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: update.Message.Chat.ID,
-			Text:   "Send me a command!",
+			Text:   "Use /start to load up the menu!",
 		})
 	}
 }

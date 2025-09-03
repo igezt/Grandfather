@@ -11,46 +11,47 @@ import (
 )
 
 var (
-	clientInstance    *mongo.Client
-	clientInstanceErr error
-	mongoOnce         sync.Once
+	clientOnce sync.Once
+	client     *mongo.Client
+	clientErr  error
 )
 
+func connect() {
+	uri := "mongodb://127.0.0.1:27017/?directConnection=true"
+
+	clientOpts := options.Client().
+		ApplyURI(uri).
+		SetServerSelectionTimeout(5 * time.Second). // how long to wait for a suitable server
+		SetConnectTimeout(5 * time.Second)          // dial timeout
+
+	cli, err := mongo.Connect(clientOpts)
+	if err != nil {
+		clientErr = err
+		return
+	}
+
+	// Verify with a short-lived context
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := cli.Ping(ctx, nil); err != nil {
+		clientErr = err
+		_ = cli.Disconnect(context.Background())
+		return
+	}
+
+	log.Println("Connected to MongoDB")
+	client = cli
+}
+
 func GetMongoClient() (*mongo.Client, error) {
-	getMongoConnection := func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		clientOptions := options.Client().ApplyURI("mongodb://localhost:27017")
-		client, err := mongo.Connect(clientOptions)
-		if err != nil {
-			clientInstanceErr = err
-			return
-		}
-
-		// Ping to verify connection
-		if err = client.Ping(ctx, nil); err != nil {
-			clientInstanceErr = err
-			return
-		}
-
-		log.Println("Connected to MongoDB")
-		clientInstance = client
-	}
-	mongoOnce.Do(getMongoConnection)
-	if clientInstanceErr != nil {
-		getMongoConnection()
-	}
-
-	return clientInstance, clientInstanceErr
+	clientOnce.Do(connect)
+	return client, clientErr
 }
 
 func GetCollection(collectionName string) (*mongo.Collection, error) {
-	client, err := GetMongoClient()
+	cli, err := GetMongoClient()
 	if err != nil {
 		return nil, err
 	}
-	database := client.Database("grandfather")
-	collection := database.Collection(collectionName)
-	return collection, err
+	return cli.Database("grandfather").Collection(collectionName), nil
 }
