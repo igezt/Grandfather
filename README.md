@@ -1,2 +1,2 @@
 # Grandfather
-Telegram Bot API for creating events with friends
+Telegram Bot for Angel and Mortal
