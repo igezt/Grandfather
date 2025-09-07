@@ -736,13 +736,177 @@ func RevealAngelCommandHandler(ctx context.Context, b *bot.Bot, update *models.U
 }
 
 func SendMessageToAngelCommandHandler(ctx context.Context, b *bot.Bot, update *models.Update, circleName string) {
+	fmt.Println("Start angel message process")
+
+	user, chatID, err := utils.ExtractUserAndChat(update)
+	if err != nil {
+		fmt.Println("Error extracting user/chat:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	updateUserStateErr := db.UpdateStateWithCircle(ctx, user.ID, appModels.StateWaitingSendMessageToAngel, circleName)
+
+	if updateUserStateErr != nil {
+		fmt.Println("Error updating user state:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   "What would you like to send to your angel?",
+	})
+}
+
+func SendMessageToAngelWithMessageCommandHandler(ctx context.Context, b *bot.Bot, update *models.Update, user *appModels.User) {
 	fmt.Println("Send angel message")
 
+	_, chatID, err := utils.ExtractUserAndChat(update)
+	if err != nil {
+		fmt.Println("Error extracting user/chat:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	circleName := user.StateCircle
+
+	if circleName == "" {
+		fmt.Printf("User had no state circle\n")
+		utils.SendErrorMessage(ctx, b, chatID)
+	}
+
+	circle, getCircleErr := db.GetCircle(ctx, circleName)
+
+	if getCircleErr != nil {
+		fmt.Printf("There was an error getting circle %s: %s\n", circleName, getCircleErr)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	if circle.CurrentSession == nil {
+		fmt.Printf("There is no currentSesssion for the circle %s\n", circleName)
+		utils.SendCustomErrorMessage(ctx, b, chatID, "There is no current active session for the circle")
+		return
+	}
+
+	match, getMatchErr := db.GetAngelMatch(ctx, *circle.CurrentSession, user.ID)
+
+	if getMatchErr != nil {
+		fmt.Printf("There was an error to get the mortal for user %d: %s\n", user.ID, getMatchErr)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	message := update.Message.Text
+
+	_, createMessageErr := db.CreateMessage(ctx, user.ID, match.AngelId, circleName, message, "mortal")
+
+	if createMessageErr != nil {
+		fmt.Printf("There was an error creating the message: %s\n", createMessageErr)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	updateUserStateErr := db.UpdateStateWithCircle(ctx, user.ID, appModels.StateNone, "")
+
+	if updateUserStateErr != nil {
+		fmt.Println("Error updating user state:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   "Your message has been sent!",
+	})
 }
 
 func SendMessageToMortalCommandHandler(ctx context.Context, b *bot.Bot, update *models.Update, circleName string) {
+	fmt.Println("Start send mortal message process")
+
+	user, chatID, err := utils.ExtractUserAndChat(update)
+	if err != nil {
+		fmt.Println("Error extracting user/chat:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	updateUserStateErr := db.UpdateStateWithCircle(ctx, user.ID, appModels.StateWaitingSendMessageToMortal, circleName)
+
+	if updateUserStateErr != nil {
+		fmt.Println("Error updating user state:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   "What would you like to send to your mortal?",
+	})
+}
+
+func SendMessageToMortalWithMessageCommandHandler(ctx context.Context, b *bot.Bot, update *models.Update, user *appModels.User) {
 	fmt.Println("Send mortal message")
 
+	_, chatID, err := utils.ExtractUserAndChat(update)
+	if err != nil {
+		fmt.Println("Error extracting user/chat:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	circleName := user.StateCircle
+
+	if circleName == "" {
+		fmt.Printf("User had no state circle\n")
+		utils.SendErrorMessage(ctx, b, chatID)
+	}
+
+	circle, getCircleErr := db.GetCircle(ctx, circleName)
+
+	if getCircleErr != nil {
+		fmt.Printf("There was an error getting circle %s: %s\n", circleName, getCircleErr)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	if circle.CurrentSession == nil {
+		fmt.Printf("There is no currentSesssion for the circle %s\n", circleName)
+		utils.SendCustomErrorMessage(ctx, b, chatID, "There is no current active session for the circle")
+		return
+	}
+
+	match, getMatchErr := db.GetMortalMatch(ctx, *circle.CurrentSession, user.ID)
+
+	if getMatchErr != nil {
+		fmt.Printf("There was an error to get the mortal for user %d: %s\n", user.ID, getMatchErr)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	message := update.Message.Text
+
+	_, createMessageErr := db.CreateMessage(ctx, user.ID, match.MortalId, circleName, message, "angel")
+
+	if createMessageErr != nil {
+		fmt.Printf("There was an error creating the message: %s\n", createMessageErr)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	updateUserStateErr := db.UpdateStateWithCircle(ctx, user.ID, appModels.StateNone, "")
+
+	if updateUserStateErr != nil {
+		fmt.Println("Error updating user state:", err)
+		utils.SendErrorMessage(ctx, b, chatID)
+		return
+	}
+
+	_, _ = b.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   "Your message has been sent!",
+	})
 }
 
 func EndSessionCommandHandler(ctx context.Context, b *bot.Bot, update *models.Update, circleName string) {

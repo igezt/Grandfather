@@ -142,3 +142,31 @@ func UpdateState(ctx context.Context, userId int64, state models.UserState) erro
 
 	return nil
 }
+
+func UpdateStateWithCircle(ctx context.Context, userId int64, state models.UserState, circleName string) error {
+
+	coll, err := GetCollection(userCollectionName)
+	if err != nil {
+		return err
+	}
+
+	filter := bson.M{"_id": userId}
+	update := bson.M{
+		"$set": bson.M{
+			"state":       state,
+			"stateCircle": circleName,
+		},
+	}
+
+	opts := options.UpdateOne().SetUpsert(false)
+	result, err := coll.UpdateOne(ctx, filter, update, opts)
+	if err != nil {
+		return err
+	}
+
+	if result.MatchedCount == 0 {
+		log.Printf("No user found with id %d", userId)
+	}
+
+	return nil
+}

@@ -7,6 +7,7 @@ import (
 	"grandfather/internal/commands.go"
 	"grandfather/internal/db"
 	appModels "grandfather/internal/models"
+	"grandfather/internal/outbox"
 	"grandfather/internal/ui"
 	"log"
 	"os"
@@ -42,8 +43,9 @@ func main() {
 	commands.Router[commands.ListCirclesCommand] = handlers.ListCirclesCommandHandler
 
 	ui.RegisterMenus()
+	outbox := outbox.NewOutbox(ctx, b)
+	defer outbox.Stop()
 
-	// --- Start bot ---
 	b.Start(ctx)
 }
 
@@ -53,14 +55,6 @@ func CallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 	}
 
 	cmd := update.CallbackQuery.Data
-
-	// Marshal to JSON
-	// data, err := json.MarshalIndent(update.CallbackQuery, "", "  ")
-	// if err != nil {
-	// 	fmt.Println("Error marshalling:", err)
-	// 	return
-	// }
-	// fmt.Println(string(data))
 
 	if !strings.Contains(cmd, "@") {
 		fmt.Printf("Normal command received: %s\n", cmd)
@@ -120,6 +114,10 @@ func CallbackHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		handlers.RevealMortalCommandHandler(ctx, b, update, extraData)
 	case commands.RevealAngelCommand:
 		handlers.RevealAngelCommandHandler(ctx, b, update, extraData)
+	case commands.SendMessageCommandToAngel:
+		handlers.SendMessageToAngelCommandHandler(ctx, b, update, extraData)
+	case commands.SendMessageCommandToMortal:
+		handlers.SendMessageToMortalCommandHandler(ctx, b, update, extraData)
 	default:
 		b.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 			CallbackQueryID: update.CallbackQuery.ID,
@@ -162,6 +160,10 @@ func defaultHandler(ctx context.Context, b *bot.Bot, update *models.Update) {
 		handlers.StartNewCircleWithNameCommandHandler(ctx, b, update)
 	case appModels.StateWaitingJoinCircleName:
 		handlers.JoinCircleWithNameCommandHandler(ctx, b, update)
+	case appModels.StateWaitingSendMessageToAngel:
+		handlers.SendMessageToAngelWithMessageCommandHandler(ctx, b, update, user)
+	case appModels.StateWaitingSendMessageToMortal:
+		handlers.SendMessageToMortalWithMessageCommandHandler(ctx, b, update, user)
 	default:
 
 		fmt.Println("ChatID:", update.Message.Chat.ID)
